@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Коди виробів — список для дизайнерів</title>
+  <style>
+    :root{
+      --bg:#e6e6e6;--card:#ffffff;--text:#111;--muted:#6b7280;--radius:14px;--shadow:0 6px 18px rgba(0,0,0,.08);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    .wrap{max-width:1100px;margin:0 auto;padding:28px 16px}
+    header{display:flex;align-items:end;justify-content:space-between;margin-bottom:18px}
+    h1{font-size:26px;margin:0;font-weight:700}
+    .hint{font-size:12px;color:var(--muted)}
+
+    .section{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:18px;overflow:hidden}
+    .section h2{margin:0;padding:14px 16px;font-size:16px;border-bottom:1px solid #efefef}
+
+    .list{display:flex;flex-direction:column;padding:8px}
+    .row{display:flex;gap:12px;align-items:center;border:1px solid #eee;border-radius:12px;padding:10px 12px;margin:6px;cursor:pointer;transition:.15s transform, .15s box-shadow;background:#fff}
+    .row:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(0,0,0,.06)}
+
+    .code{font-family:ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;background:#111;color:#fff;border-radius:8px;padding:6px 10px;white-space:nowrap}
+    .meta{display:flex;gap:8px;flex-wrap:wrap;min-width:0}
+    .chip{border:1px solid #e5e7eb;border-radius:999px;padding:4px 10px;font-size:12px;background:#fafafa;white-space:nowrap}
+    .muted{color:var(--muted)}
+    footer{text-align:center;margin-top:10px;color:var(--muted);font-size:12px}
+
+    .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#111;color:#fff;border-radius:12px;padding:10px 14px;opacity:0;pointer-events:none;transition:.25s}
+    .toast.show{opacity:1}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Коди для макетів</h1>
+      <div class="hint">Натисни на рядок — код скопіюється у буфер. Дані тягнуться з Google Sheets.</div>
+    </header>
+
+    <div id="container"></div>
+    <footer>Останнє оновлення: <span id="updated">—</span></footer>
+  </div>
+
+  <div id="toast" class="toast">Скопійовано</div>
+
+  <script>
+    // ===== Налаштування =====
+    const API_KEY = "AIzaSyB2l87TIEyJwO1BMDkE_IHMaXG6k2N3rEw"; // твій ключ
+    const SPREADSHEET_ID = "1OfyrwUBOLyQzpbjzGbIwGIpkc6iPwuwkGFaWWSU2uao";              // 👉 встав свій ID
+    const SHEET_NAME = "Коди";                                  // назва аркуша
+    const RANGE = `${SHEET_NAME}!A1:K`;                          // підлаштуй за потреби
+
+    // Як визначити технологію та код
+    const TECHNOLOGY_HEADERS = ["ТЦ", "Технологія", "Технології", "Tech"]; // у скріні колонка «ТЦ: ...»
+    const CODE_HEADERS = ["Код", "Code", "Артикул", "Назва коду"];        // що копіюємо
+
+    // Які поля показувати як чіпи під кодом (у порядку пріоритету, якщо існують)
+    const CHIP_CANDIDATES = [
+      "Стаціонарний цифр.", "Стаціонарні цифр.", "Стаціонарні цифри", "Циферблат",
+      "Шари", "Одиночковий", "Двошаровий",
+      "Матеріал", "Алюміній", "Гільза",
+      "2D мітки", "3D мітки", "Напилок"
+    ];
+
+    const TECH_ORDER = ["УФ", "Лазер", "УФ+Лазер", "Лазер+УФ"]; // порядок секцій
+
+    // ===== Стан =====
+    let headers = [];
+    let rows = [];
+    let codeKey = null;
+    let techKey = null;
+
+    const $ = (s)=>document.querySelector(s);
+    const container = $("#container");
+    const toastEl = $("#toast");
+
+    // ===== Завантаження з Sheets =====
+    async function load(){
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(RANGE)}?key=${API_KEY}`;
+      const res = await fetch(url);
+      if(!res.ok) throw new Error("Не вдалось завантажити дані з Google Sheets");
+      const json = await res.json();
+      const values = json.values||[];
+      if(!values.length) return;
+      headers = values[0];
+      const data = values.slice(1);
+      rows = data.map(r => Object.fromEntries(headers.map((h,i)=>[h, r[i] ?? ""])));
+
+      techKey = headers.find(h => TECHNOLOGY_HEADERS.some(x => h.toLowerCase().includes(x.toLowerCase()))) || headers[1];
+      codeKey = headers.find(h => CODE_HEADERS.includes(h)) || headers[0];
+
+      render();
+      $("#updated").textContent = new Date().toLocaleString();
+    }
+
+    // ===== Рендер секцій за технологіями =====
+    function render(){
+      const groups = {};
+      rows.forEach(row=>{
+        const raw = (row[techKey]||"").toString().toLowerCase();
+        const tech = normalizeTech(raw);
+        (groups[tech] ||= []).push(row);
+      });
+
+      container.innerHTML = "";
+      TECH_ORDER.concat(Object.keys(groups).filter(k=>!TECH_ORDER.includes(k))).forEach(tech=>{
+        if(!groups[tech]||!groups[tech].length) return;
+        const sec = document.createElement('section');
+        sec.className = 'section';
+        sec.innerHTML = `<h2>${tech}</h2><div class="list"></div>`;
+        const list = sec.querySelector('.list');
+        groups[tech].forEach(row=> list.appendChild(renderRow(row)) );
+        container.appendChild(sec);
+      });
+    }
+
+    function renderRow(row){
+      const el = document.createElement('div');
+      el.className = 'row';
+      const code = row[codeKey] || row[headers[0]] || '';
+      const chips = makeChips(row);
+      el.innerHTML = `
+        <div class="code" title="Натисни, щоб скопіювати код">${escapeHtml(code)}</div>
+        <div class="meta">${chips.map(c=>`<span class=\"chip\">${escapeHtml(c)}</span>`).join('')}</div>
+      `;
+      el.addEventListener('click', ()=>copy(code));
+      return el;
+    }
+
+    function makeChips(row){
+      const found = [];
+      CHIP_CANDIDATES.forEach(name=>{
+        const key = headers.find(h=>h.toLowerCase()===name.toLowerCase());
+        if(key && row[key]) found.push(`${key}: ${row[key]}`);
+      });
+      // Якщо нічого не співпало — покажемо 2-3 перші інформативні колонки після коду
+      if(!found.length){
+        headers.slice(1,4).forEach(h=>{ if(row[h]) found.push(`${h}: ${row[h]}`); });
+      }
+      return found;
+    }
+
+    function normalizeTech(s){
+      // нормалізуємо різні варіанти написання
+      if(s.includes('уф') && s.includes('лаз')) return s.indexOf('уф') < s.indexOf('лаз') ? 'УФ+Лазер' : 'Лазер+УФ';
+      if(s.includes('уф')) return 'УФ';
+      if(s.includes('лаз')) return 'Лазер';
+      return 'Інше';
+    }
+
+    async function copy(text){
+      if(!text) return;
+      try{ await navigator.clipboard.writeText(text); showToast('Скопійовано: ' + text); }
+      catch{ showToast('Не вдалось скопіювати'); }
+    }
+
+    function showToast(msg){
+      toastEl.textContent = msg; toastEl.classList.add('show');
+      setTimeout(()=>toastEl.classList.remove('show'), 1500);
+    }
+
+    function escapeHtml(str){
+      return String(str).replace(/[&<>"']/g, s=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[s]));
+    }
+
+    load().catch(e=>{ console.error(e); showToast('Помилка завантаження'); });
+  </script>
+</body>
+</html>
