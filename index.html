@@ -165,7 +165,7 @@
       return String(str).replace(/[&<>"']/g, s=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[s]));
     }
 
-    load().catch(e=>{ console.error(e); showToast('Помилка завантаження'); });
+    load().catch(e=>{ console.error('LOAD_ERROR', e); const msg = (e && e.message) ? e.message : 'Помилка завантаження даних'; showToast(msg); document.getElementById('container').innerHTML = `<div style="padding:16px;color:#e11d48">${msg}</div>`; }); showToast('Помилка завантаження'); });
   </script>
 </body>
 </html>
