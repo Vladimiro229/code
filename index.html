@@ -36,7 +36,7 @@
   <div class="wrap">
     <header>
       <h1>Коди для макетів</h1>
-      <div class="hint">Натисни на рядок — код скопіюється у буфер. Дані тягнуться з Google Sheets.</div>
+      <div class="hint">Натисни на рядок — код скопіюється у буфер. Дані тягнуться з приватної таблиці через Apps Script.</div>
     </header>
 
     <div id="container"></div>
@@ -46,27 +46,12 @@
   <div id="toast" class="toast">Скопійовано</div>
 
   <script>
-    // ===== Налаштування =====
-    const API_KEY = "AIzaSyB2l87TIEyJwO1BMDkE_IHMaXG6k2N3rEw"; // твій ключ
-    const SPREADSHEET_ID = "1OfyrwUBOLyQzpbjzGbIwGIpkc6iPwuwkGFaWWSU2uao";              // 👉 встав свій ID
-    const SHEET_NAME = "Коди";                                  // назва аркуша
-    const RANGE = `${SHEET_NAME}!A1:K`;                          // підлаштуй за потреби
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyGLJRZvCoZ7EBCQenEGxr8Ap3VbreW_0WAVG20cIFIQC6LDFrUKxG4M_mjADP3koUy/exec";
+    const TECHNOLOGY_HEADERS = ["ТЦ", "Технологія", "Технології", "Tech"];
+    const CODE_HEADERS = ["Код", "Code", "Артикул", "Назва коду"];
+    const CHIP_CANDIDATES = ["Стаціонарний цифр.", "Стаціонарні цифр.", "Стаціонарні цифри", "Циферблат", "Шари", "Одиночковий", "Двошаровий", "Матеріал", "Алюміній", "Гільза", "2D мітки", "3D мітки", "Напилок"];
+    const TECH_ORDER = ["УФ", "Лазер", "УФ+Лазер", "Лазер+УФ"];
 
-    // Як визначити технологію та код
-    const TECHNOLOGY_HEADERS = ["ТЦ", "Технологія", "Технології", "Tech"]; // у скріні колонка «ТЦ: ...»
-    const CODE_HEADERS = ["Код", "Code", "Артикул", "Назва коду"];        // що копіюємо
-
-    // Які поля показувати як чіпи під кодом (у порядку пріоритету, якщо існують)
-    const CHIP_CANDIDATES = [
-      "Стаціонарний цифр.", "Стаціонарні цифр.", "Стаціонарні цифри", "Циферблат",
-      "Шари", "Одиночковий", "Двошаровий",
-      "Матеріал", "Алюміній", "Гільза",
-      "2D мітки", "3D мітки", "Напилок"
-    ];
-
-    const TECH_ORDER = ["УФ", "Лазер", "УФ+Лазер", "Лазер+УФ"]; // порядок секцій
-
-    // ===== Стан =====
     let headers = [];
     let rows = [];
     let codeKey = null;
@@ -76,26 +61,20 @@
     const container = $("#container");
     const toastEl = $("#toast");
 
-    // ===== Завантаження з Sheets =====
     async function load(){
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(RANGE)}?key=${API_KEY}`;
-      const res = await fetch(url);
-      if(!res.ok) throw new Error("Не вдалось завантажити дані з Google Sheets");
-      const json = await res.json();
-      const values = json.values||[];
-      if(!values.length) return;
-      headers = values[0];
-      const data = values.slice(1);
-      rows = data.map(r => Object.fromEntries(headers.map((h,i)=>[h, r[i] ?? ""])));
+      const res = await fetch(WEB_APP_URL);
+      if(!res.ok) throw new Error("Не вдалось завантажити дані з веб-апки");
+      const { headers: hs, rows: rs, updated } = await res.json();
+      headers = hs || [];
+      rows = rs || [];
 
       techKey = headers.find(h => TECHNOLOGY_HEADERS.some(x => h.toLowerCase().includes(x.toLowerCase()))) || headers[1];
       codeKey = headers.find(h => CODE_HEADERS.includes(h)) || headers[0];
 
       render();
-      $("#updated").textContent = new Date().toLocaleString();
+      document.getElementById('updated').textContent = updated ? new Date(updated).toLocaleString() : new Date().toLocaleString();
     }
 
-    // ===== Рендер секцій за технологіями =====
     function render(){
       const groups = {};
       rows.forEach(row=>{
@@ -135,7 +114,6 @@
         const key = headers.find(h=>h.toLowerCase()===name.toLowerCase());
         if(key && row[key]) found.push(`${key}: ${row[key]}`);
       });
-      // Якщо нічого не співпало — покажемо 2-3 перші інформативні колонки після коду
       if(!found.length){
         headers.slice(1,4).forEach(h=>{ if(row[h]) found.push(`${h}: ${row[h]}`); });
       }
@@ -143,7 +121,6 @@
     }
 
     function normalizeTech(s){
-      // нормалізуємо різні варіанти написання
       if(s.includes('уф') && s.includes('лаз')) return s.indexOf('уф') < s.indexOf('лаз') ? 'УФ+Лазер' : 'Лазер+УФ';
       if(s.includes('уф')) return 'УФ';
       if(s.includes('лаз')) return 'Лазер';
@@ -165,7 +142,7 @@
       return String(str).replace(/[&<>"']/g, s=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[s]));
     }
 
-    load().catch(e=>{ console.error('LOAD_ERROR', e); const msg = (e && e.message) ? e.message : 'Помилка завантаження даних'; showToast(msg); document.getElementById('container').innerHTML = `<div style="padding:16px;color:#e11d48">${msg}</div>`; }); showToast('Помилка завантаження'); });
+    load().catch(e=>{ console.error('LOAD_ERROR', e); const msg = (e && e.message) ? e.message : 'Помилка завантаження даних'; showToast(msg); container.innerHTML = `<div style="padding:16px;color:#e11d48">${msg}</div>`; });
   </script>
 </body>
 </html>
